@@ -27,6 +27,11 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
       - name: Unzip project
         run: |
           set -e
@@ -85,13 +90,34 @@ jobs:
             echo "Android folder already exists."
           fi
 
+      - name: Force Android compileSdk 36
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -e
+
+          if [ -f "android/app/build.gradle.kts" ]; then
+            echo "Patching Kotlin Gradle file..."
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
+            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' android/app/build.gradle.kts
+            sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 36/g' android/app/build.gradle.kts
+            sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 36/g' android/app/build.gradle.kts
+          fi
+
+          if [ -f "android/app/build.gradle" ]; then
+            echo "Patching Groovy Gradle file..."
+            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 36/g' android/app/build.gradle
+            sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 36/g' android/app/build.gradle
+            sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 36/g' android/app/build.gradle
+            sed -i 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion 36/g' android/app/build.gradle
+          fi
+
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get
 
       - name: Build release APK
         working-directory: ${{ env.APP_DIR }}
-        run: flutter build apk --release
+        run: flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
