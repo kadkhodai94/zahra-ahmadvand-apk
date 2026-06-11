@@ -1,4 +1,4 @@
-name: Build Flutter APK V10
+name: Build Flutter APK V12
 
 on:
   workflow_dispatch:
@@ -20,6 +20,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -79,17 +84,46 @@ jobs:
             echo "AndroidManifest.xml not found."
             exit 1
           fi
-          if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
-            sed -i '/<manifest/a\    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST"
-          fi
-          if ! grep -q "usesCleartextTraffic" "$MANIFEST"; then
-            python3 - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           p = Path('android/app/src/main/AndroidManifest.xml')
           s = p.read_text()
-          s = s.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
+          perms = [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
+              '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
+          ]
+          insert = ''
+          for perm in perms:
+              name = perm.split('android:name="', 1)[1].split('"', 1)[0]
+              if name not in s:
+                  insert += '    ' + perm + '\n'
+          if insert:
+              s = s.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + insert, 1)
+          if 'usesCleartextTraffic' not in s:
+              s = s.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
           p.write_text(s)
           PY
+
+      - name: Force Android SDK versions
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -e
+          if [ -f "android/app/build.gradle.kts" ]; then
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
+            sed -i 's/minSdk = [0-9][0-9]*/minSdk = 23/g' android/app/build.gradle.kts
+          fi
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle
+            sed -i 's/minSdkVersion [0-9][0-9]*/minSdkVersion 23/g' android/app/build.gradle
           fi
 
       - name: Flutter clean
@@ -107,6 +141,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: private-teacher-app-v10-release-apk
+          name: private-teacher-app-v12-release-apk
           path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
