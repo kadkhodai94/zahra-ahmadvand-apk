@@ -1,4 +1,4 @@
-name: Build Flutter APK V12
+name: Build Flutter APK V12 Fixed
 
 on:
   workflow_dispatch:
@@ -21,10 +21,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK 36
         uses: android-actions/setup-android@v4
         with:
-          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -39,6 +39,7 @@ jobs:
           mkdir -p extracted
 
           ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
           if [ -n "$ZIP_FILE" ]; then
             echo "Found ZIP: $ZIP_FILE"
             unzip -q "$ZIP_FILE" -d extracted
@@ -49,9 +50,11 @@ jobs:
           fi
 
           PUBSPEC=$(find "$SEARCH_DIR" -path "*/flutter_app/pubspec.yaml" | head -n 1)
+
           if [ -z "$PUBSPEC" ]; then
             PUBSPEC=$(find "$SEARCH_DIR" -name "pubspec.yaml" | head -n 1)
           fi
+
           if [ -z "$PUBSPEC" ]; then
             echo "pubspec.yaml not found."
             find "$SEARCH_DIR" -maxdepth 6 -type f
@@ -66,10 +69,15 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -e
+
           if [ ! -d "android" ]; then
+            echo "Android folder not found. Creating Android platform files..."
+
             cp pubspec.yaml /tmp/pubspec_backup.yaml
             cp -r lib /tmp/lib_backup
+
             flutter create . --platforms=android --project-name private_teacher_app
+
             rm -rf lib
             cp -r /tmp/lib_backup lib
             cp /tmp/pubspec_backup.yaml pubspec.yaml
@@ -79,49 +87,76 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -e
+
           MANIFEST="android/app/src/main/AndroidManifest.xml"
+
           if [ ! -f "$MANIFEST" ]; then
             echo "AndroidManifest.xml not found."
             exit 1
           fi
+
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('android/app/src/main/AndroidManifest.xml')
-          s = p.read_text()
-          perms = [
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
+
+          permissions = [
               '<uses-permission android:name="android.permission.INTERNET" />',
               '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
               '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
           ]
-          insert = ''
-          for perm in perms:
-              name = perm.split('android:name="', 1)[1].split('"', 1)[0]
-              if name not in s:
-                  insert += '    ' + perm + '\n'
+
+          insert = ""
+          for permission in permissions:
+              permission_name = permission.split('android:name="', 1)[1].split('"', 1)[0]
+              if permission_name not in text:
+                  insert += "    " + permission + "\n"
+
           if insert:
-              s = s.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + insert, 1)
-          if 'usesCleartextTraffic' not in s:
-              s = s.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
-          p.write_text(s)
+              text = text.replace(
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + insert,
+                  1
+              )
+
+          if "usesCleartextTraffic" not in text:
+              text = text.replace(
+                  "<application",
+                  '<application android:usesCleartextTraffic="true"',
+                  1
+              )
+
+          manifest.write_text(text)
           PY
 
       - name: Force Android SDK versions
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -e
+
           if [ -f "android/app/build.gradle.kts" ]; then
-            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/g' android/app/build.gradle.kts
-            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 35/g' android/app/build.gradle.kts
+            echo "Patching build.gradle.kts..."
+
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
+            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' android/app/build.gradle.kts
+
             sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g' android/app/build.gradle.kts
             sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 35/g' android/app/build.gradle.kts
+
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
             sed -i 's/minSdk = [0-9][0-9]*/minSdk = 23/g' android/app/build.gradle.kts
           fi
+
           if [ -f "android/app/build.gradle" ]; then
-            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/g' android/app/build.gradle
-            sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 35/g' android/app/build.gradle
+            echo "Patching build.gradle..."
+
+            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 36/g' android/app/build.gradle
+            sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 36/g' android/app/build.gradle
+
             sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g' android/app/build.gradle
             sed -i 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion 35/g' android/app/build.gradle
+
             sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle
             sed -i 's/minSdkVersion [0-9][0-9]*/minSdkVersion 23/g' android/app/build.gradle
           fi
@@ -141,6 +176,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: private-teacher-app-v12-release-apk
+          name: private-teacher-app-v12-fixed-release-apk
           path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
