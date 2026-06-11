@@ -23,8 +23,6 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -39,7 +37,7 @@ jobs:
           ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found."
+            echo "No ZIP file found in repository root."
             exit 1
           fi
 
@@ -90,24 +88,52 @@ jobs:
             echo "Android folder already exists."
           fi
 
-      - name: Force Android compileSdk 36
+      - name: Add Internet permission
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -e
+
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+
+          if [ -f "$MANIFEST" ]; then
+            if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
+              sed -i 's/<manifest /<manifest /' "$MANIFEST"
+              sed -i '/<manifest/a\    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST"
+              echo "INTERNET permission added."
+            else
+              echo "INTERNET permission already exists."
+            fi
+          else
+            echo "AndroidManifest.xml not found."
+            exit 1
+          fi
+
+      - name: Force Android SDK versions
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -e
 
           if [ -f "android/app/build.gradle.kts" ]; then
-            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
-            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' android/app/build.gradle.kts
-            sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 36/g' android/app/build.gradle.kts
-            sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 36/g' android/app/build.gradle.kts
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
+            sed -i 's/minSdk = [0-9][0-9]*/minSdk = 23/g' android/app/build.gradle.kts
           fi
 
           if [ -f "android/app/build.gradle" ]; then
-            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 36/g' android/app/build.gradle
-            sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 36/g' android/app/build.gradle
-            sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 36/g' android/app/build.gradle
-            sed -i 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion 36/g' android/app/build.gradle
+            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle
+            sed -i 's/minSdkVersion [0-9][0-9]*/minSdkVersion 23/g' android/app/build.gradle
           fi
+
+      - name: Flutter clean
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter clean
 
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
