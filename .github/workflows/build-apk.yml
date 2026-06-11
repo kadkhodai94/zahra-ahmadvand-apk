@@ -1,0 +1,101 @@
+name: Build Flutter APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-apk:
+    name: Build APK from ZIP
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Unzip project
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found."
+            exit 1
+          fi
+
+          echo "Found ZIP: $ZIP_FILE"
+
+          rm -rf extracted
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+      - name: Find Flutter app folder
+        run: |
+          set -e
+
+          PUBSPEC=$(find extracted -path "*/flutter_app/pubspec.yaml" | head -n 1)
+
+          if [ -z "$PUBSPEC" ]; then
+            PUBSPEC=$(find extracted -name "pubspec.yaml" | head -n 1)
+          fi
+
+          if [ -z "$PUBSPEC" ]; then
+            echo "pubspec.yaml not found."
+            find extracted -maxdepth 6 -type f
+            exit 1
+          fi
+
+          APP_DIR=$(dirname "$PUBSPEC")
+
+          echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
+          echo "Flutter app found at: $APP_DIR"
+
+      - name: Create Android platform files if missing
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -e
+
+          if [ ! -d "android" ]; then
+            echo "Android folder not found. Creating Flutter Android project files..."
+
+            cp pubspec.yaml /tmp/pubspec_backup.yaml
+            cp -r lib /tmp/lib_backup
+
+            flutter create . --platforms=android --project-name private_teacher_app
+
+            rm -rf lib
+            cp -r /tmp/lib_backup lib
+            cp /tmp/pubspec_backup.yaml pubspec.yaml
+          else
+            echo "Android folder already exists."
+          fi
+
+      - name: Flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Build release APK
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-teacher-app-release-apk
+          path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
