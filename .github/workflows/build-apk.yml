@@ -1,4 +1,4 @@
-name: Build Flutter APK Stable
+name: Build Flutter APK V10
 
 on:
   workflow_dispatch:
@@ -70,14 +70,31 @@ jobs:
             cp /tmp/pubspec_backup.yaml pubspec.yaml
           fi
 
-      - name: Add internet permission
+      - name: Add Android permissions
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -e
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ] && ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
-            sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">\n    <uses-permission android:name="android.permission.INTERNET" \/>/g' "$MANIFEST"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "AndroidManifest.xml not found."
+            exit 1
           fi
+          if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
+            sed -i '/<manifest/a\    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST"
+          fi
+          if ! grep -q "usesCleartextTraffic" "$MANIFEST"; then
+            python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/src/main/AndroidManifest.xml')
+          s = p.read_text()
+          s = s.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
+          p.write_text(s)
+          PY
+          fi
+
+      - name: Flutter clean
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter clean
 
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
@@ -90,6 +107,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: private-teacher-app-release-apk
+          name: private-teacher-app-v10-release-apk
           path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
