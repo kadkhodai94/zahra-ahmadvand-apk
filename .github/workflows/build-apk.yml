@@ -1,4 +1,4 @@
-name: Build Flutter APK
+name: Build Flutter APK Stable
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-apk:
-    name: Build APK from ZIP
+    name: Build APK
     runs-on: ubuntu-latest
 
     steps:
@@ -21,119 +21,63 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Unzip project
+      - name: Prepare project
         run: |
           set -e
-
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found in repository root."
-            exit 1
-          fi
-
-          echo "Found ZIP: $ZIP_FILE"
-
           rm -rf extracted
           mkdir -p extracted
-          unzip -q "$ZIP_FILE" -d extracted
 
-      - name: Find Flutter app folder
-        run: |
-          set -e
-
-          PUBSPEC=$(find extracted -path "*/flutter_app/pubspec.yaml" | head -n 1)
-
-          if [ -z "$PUBSPEC" ]; then
-            PUBSPEC=$(find extracted -name "pubspec.yaml" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found ZIP: $ZIP_FILE"
+            unzip -q "$ZIP_FILE" -d extracted
+            SEARCH_DIR="extracted"
+          else
+            echo "No ZIP found, using repository files."
+            SEARCH_DIR="."
           fi
 
+          PUBSPEC=$(find "$SEARCH_DIR" -path "*/flutter_app/pubspec.yaml" | head -n 1)
+          if [ -z "$PUBSPEC" ]; then
+            PUBSPEC=$(find "$SEARCH_DIR" -name "pubspec.yaml" | head -n 1)
+          fi
           if [ -z "$PUBSPEC" ]; then
             echo "pubspec.yaml not found."
-            find extracted -maxdepth 6 -type f
+            find "$SEARCH_DIR" -maxdepth 6 -type f
             exit 1
           fi
 
           APP_DIR=$(dirname "$PUBSPEC")
-
           echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
           echo "Flutter app found at: $APP_DIR"
 
-      - name: Create Android platform files if missing
+      - name: Create Android files if missing
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -e
-
           if [ ! -d "android" ]; then
-            echo "Android folder not found. Creating Flutter Android project files..."
-
             cp pubspec.yaml /tmp/pubspec_backup.yaml
             cp -r lib /tmp/lib_backup
-
             flutter create . --platforms=android --project-name private_teacher_app
-
             rm -rf lib
             cp -r /tmp/lib_backup lib
             cp /tmp/pubspec_backup.yaml pubspec.yaml
-          else
-            echo "Android folder already exists."
           fi
 
-      - name: Add Internet permission
+      - name: Add internet permission
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -e
-
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-
-          if [ -f "$MANIFEST" ]; then
-            if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
-              sed -i 's/<manifest /<manifest /' "$MANIFEST"
-              sed -i '/<manifest/a\    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST"
-              echo "INTERNET permission added."
-            else
-              echo "INTERNET permission already exists."
-            fi
-          else
-            echo "AndroidManifest.xml not found."
-            exit 1
+          if [ -f "$MANIFEST" ] && ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
+            sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">\n    <uses-permission android:name="android.permission.INTERNET" \/>/g' "$MANIFEST"
           fi
-
-      - name: Force Android SDK versions
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          set -e
-
-          if [ -f "android/app/build.gradle.kts" ]; then
-            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/g' android/app/build.gradle.kts
-            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 35/g' android/app/build.gradle.kts
-            sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g' android/app/build.gradle.kts
-            sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 35/g' android/app/build.gradle.kts
-            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
-            sed -i 's/minSdk = [0-9][0-9]*/minSdk = 23/g' android/app/build.gradle.kts
-          fi
-
-          if [ -f "android/app/build.gradle" ]; then
-            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/g' android/app/build.gradle
-            sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 35/g' android/app/build.gradle
-            sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g' android/app/build.gradle
-            sed -i 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion 35/g' android/app/build.gradle
-            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle
-            sed -i 's/minSdkVersion [0-9][0-9]*/minSdkVersion 23/g' android/app/build.gradle
-          fi
-
-      - name: Flutter clean
-        working-directory: ${{ env.APP_DIR }}
-        run: flutter clean
 
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
