@@ -1,17 +1,18 @@
-name: Build Flutter APK
+name: Build Flutter APK V12 Fixed
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
   build-apk:
+    name: Build APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout project
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Java
@@ -20,187 +21,161 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Setup Android SDK 36
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
 
-      - name: Find and unzip project
+      - name: Prepare project
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" -printf "%f\n" | sort -V | tail -n 1 || true)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "No zip file found in repository root."
-            exit 1
-          fi
-
-          echo "Found zip file: $ZIP_FILE"
-
+          set -e
           rm -rf extracted
           mkdir -p extracted
-          unzip -q "$ZIP_FILE" -d extracted
 
-      - name: Find Flutter project
-        id: find_project
-        run: |
-          PROJECT_DIR=$(find extracted -name pubspec.yaml -exec dirname {} \; | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "Flutter project not found."
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found ZIP: $ZIP_FILE"
+            unzip -q "$ZIP_FILE" -d extracted
+            SEARCH_DIR="extracted"
+          else
+            echo "No ZIP found, using repository files."
+            SEARCH_DIR="."
+          fi
+
+          PUBSPEC=$(find "$SEARCH_DIR" -path "*/flutter_app/pubspec.yaml" | head -n 1)
+
+          if [ -z "$PUBSPEC" ]; then
+            PUBSPEC=$(find "$SEARCH_DIR" -name "pubspec.yaml" | head -n 1)
+          fi
+
+          if [ -z "$PUBSPEC" ]; then
+            echo "pubspec.yaml not found."
+            find "$SEARCH_DIR" -maxdepth 6 -type f
             exit 1
           fi
 
-          echo "Flutter project found: $PROJECT_DIR"
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          APP_DIR=$(dirname "$PUBSPEC")
+          echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
+          echo "Flutter app found at: $APP_DIR"
 
-      - name: Recreate Android folder for current Flutter
-        working-directory: ${{ steps.find_project.outputs.project_dir }}
+      - name: Create Android files if missing
+        working-directory: ${{ env.APP_DIR }}
         run: |
-          rm -rf android
+          set -e
 
-          flutter create \
-            --platforms=android \
-            --org ir.miplus \
-            --project-name gamino \
-            .
+          if [ ! -d "android" ]; then
+            echo "Android folder not found. Creating Android platform files..."
 
-      - name: Install Gamino launcher icons
-        working-directory: ${{ steps.find_project.outputs.project_dir }}
-        run: |
-          mkdir -p android/app/src/main/res
-          cp -r assets/android_icon/mipmap-* android/app/src/main/res/
+            cp pubspec.yaml /tmp/pubspec_backup.yaml
+            cp -r lib /tmp/lib_backup
 
-          if [ -f android/app/src/main/AndroidManifest.xml ]; then
-            sed -i 's/android:label="[^"]*"/android:label="گامینو"/' android/app/src/main/AndroidManifest.xml
-            sed -i 's/android:icon="[^"]*"/android:icon="@mipmap\/ic_launcher"/' android/app/src/main/AndroidManifest.xml
+            flutter create . --platforms=android --project-name private_teacher_app
 
-            if ! grep -q "android:roundIcon" android/app/src/main/AndroidManifest.xml; then
-              sed -i 's/android:icon="@mipmap\/ic_launcher"/android:icon="@mipmap\/ic_launcher" android:roundIcon="@mipmap\/ic_launcher_round"/' android/app/src/main/AndroidManifest.xml
-            fi
+            rm -rf lib
+            cp -r /tmp/lib_backup lib
+            cp /tmp/pubspec_backup.yaml pubspec.yaml
           fi
 
-          test -f android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-
-      - name: Install private Gamino signing key
-        working-directory: ${{ steps.find_project.outputs.project_dir }}
-        env:
-          GAMINO_KEYSTORE_BASE64: ${{ secrets.GAMINO_KEYSTORE_BASE64 }}
-          GAMINO_STORE_PASSWORD: ${{ secrets.GAMINO_STORE_PASSWORD }}
-          GAMINO_KEY_PASSWORD: ${{ secrets.GAMINO_KEY_PASSWORD }}
-          GAMINO_KEY_ALIAS: ${{ secrets.GAMINO_KEY_ALIAS }}
+      - name: Add Android permissions
+        working-directory: ${{ env.APP_DIR }}
         run: |
-          if [ -z "$GAMINO_KEYSTORE_BASE64" ] || [ -z "$GAMINO_STORE_PASSWORD" ] || [ -z "$GAMINO_KEY_PASSWORD" ] || [ -z "$GAMINO_KEY_ALIAS" ]; then
-            echo "Missing Gamino signing secrets."
-            exit 12
+          set -e
+
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+
+          if [ ! -f "$MANIFEST" ]; then
+            echo "AndroidManifest.xml not found."
+            exit 1
           fi
 
-          mkdir -p android/app
+          python3 - <<'PY'
+          from pathlib import Path
 
-          echo "$GAMINO_KEYSTORE_BASE64" | base64 --decode > android/app/gamino-release-key.jks
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
 
-          cat > android/key.properties <<EOF
-          storePassword=$GAMINO_STORE_PASSWORD
-          keyPassword=$GAMINO_KEY_PASSWORD
-          keyAlias=$GAMINO_KEY_ALIAS
-          storeFile=gamino-release-key.jks
-          EOF
+          permissions = [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
+              '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
+          ]
 
-          sed -i 's/^          //' android/key.properties
+          insert = ""
+          for permission in permissions:
+              permission_name = permission.split('android:name="', 1)[1].split('"', 1)[0]
+              if permission_name not in text:
+                  insert += "    " + permission + "\n"
 
-          echo "key.properties created"
-          test -f android/app/gamino-release-key.jks
+          if insert:
+              text = text.replace(
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + insert,
+                  1
+              )
 
-      - name: Patch Android signing config
-        working-directory: ${{ steps.find_project.outputs.project_dir }}
+          if "usesCleartextTraffic" not in text:
+              text = text.replace(
+                  "<application",
+                  '<application android:usesCleartextTraffic="true"',
+                  1
+              )
+
+          manifest.write_text(text)
+          PY
+
+      - name: Force Android SDK versions
+        working-directory: ${{ env.APP_DIR }}
         run: |
-          cat > android/app/build.gradle.kts <<'EOF'
-          import java.util.Properties
-          import java.io.FileInputStream
+          set -e
 
-          plugins {
-              id("com.android.application")
-              id("kotlin-android")
-              id("dev.flutter.flutter-gradle-plugin")
-          }
+          if [ -f "android/app/build.gradle.kts" ]; then
+            echo "Patching build.gradle.kts..."
 
-          val keystoreProperties = Properties()
-          val keystorePropertiesFile = rootProject.file("key.properties")
-          if (keystorePropertiesFile.exists()) {
-              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-          }
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
+            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' android/app/build.gradle.kts
 
-          android {
-              namespace = "ir.miplus.gamino"
-              compileSdk = flutter.compileSdkVersion
-              ndkVersion = flutter.ndkVersion
+            sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g' android/app/build.gradle.kts
+            sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 35/g' android/app/build.gradle.kts
 
-              defaultConfig {
-                  applicationId = "ir.miplus.gamino"
-                  minSdk = flutter.minSdkVersion
-                  targetSdk = flutter.targetSdkVersion
-                  versionCode = flutter.versionCode
-                  versionName = flutter.versionName
-              }
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
+            sed -i 's/minSdk = [0-9][0-9]*/minSdk = 23/g' android/app/build.gradle.kts
+          fi
 
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
+          if [ -f "android/app/build.gradle" ]; then
+            echo "Patching build.gradle..."
 
-              signingConfigs {
-                  create("release") {
-                      keyAlias = keystoreProperties["keyAlias"] as String
-                      keyPassword = keystoreProperties["keyPassword"] as String
-                      storeFile = file(keystoreProperties["storeFile"] as String)
-                      storePassword = keystoreProperties["storePassword"] as String
-                  }
-              }
+            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 36/g' android/app/build.gradle
+            sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 36/g' android/app/build.gradle
 
-              buildTypes {
-                  release {
-                      signingConfig = signingConfigs.getByName("release")
-                      isMinifyEnabled = false
-                      isShrinkResources = false
-                  }
-              }
-          }
+            sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g' android/app/build.gradle
+            sed -i 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion 35/g' android/app/build.gradle
 
-          kotlin {
-              jvmToolchain(17)
-          }
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle
+            sed -i 's/minSdkVersion [0-9][0-9]*/minSdkVersion 23/g' android/app/build.gradle
+          fi
 
-          flutter {
-              source = "../.."
-          }
-          EOF
+      - name: Flutter clean
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter clean
 
-          sed -i 's/^          //' android/app/build.gradle.kts
-
-          echo "build.gradle.kts patched for Gamino signing and JVM 17"
-          test -f android/app/build.gradle.kts
-
-      - name: Get Flutter packages
-        working-directory: ${{ steps.find_project.outputs.project_dir }}
+      - name: Flutter pub get
+        working-directory: ${{ env.APP_DIR }}
         run: flutter pub get
 
-      - name: Build protected release APK
-        working-directory: ${{ steps.find_project.outputs.project_dir }}
-        run: |
-          flutter build apk \
-            --release \
-            --no-shrink \
-            --obfuscate \
-            --split-debug-info=build/debug-info \
-            --android-skip-build-dependency-validation
+      - name: Build release APK
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter build apk --release --no-tree-shake-icons
 
-      - name: Rename APK
-        working-directory: ${{ steps.find_project.outputs.project_dir }}
-        run: |
-          mkdir -p output
-          cp build/app/outputs/flutter-apk/app-release.apk output/gamino-v75.apk
-
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gamino-v75-apk
-          path: ${{ steps.find_project.outputs.project_dir }}/output/gamino-v75.apk
+          name: private-teacher-app-v12-fixed-release-apk
+          path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
