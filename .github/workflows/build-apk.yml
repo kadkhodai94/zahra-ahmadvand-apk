@@ -1,4 +1,4 @@
-name: Build Flutter APK V12 Fixed
+name: Build Flutter APK V13
 
 on:
   workflow_dispatch:
@@ -137,26 +137,20 @@ jobs:
 
           if [ -f "android/app/build.gradle.kts" ]; then
             echo "Patching build.gradle.kts..."
-
             sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
             sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' android/app/build.gradle.kts
-
             sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g' android/app/build.gradle.kts
             sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 35/g' android/app/build.gradle.kts
-
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
             sed -i 's/minSdk = [0-9][0-9]*/minSdk = 23/g' android/app/build.gradle.kts
           fi
 
           if [ -f "android/app/build.gradle" ]; then
             echo "Patching build.gradle..."
-
             sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 36/g' android/app/build.gradle
             sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 36/g' android/app/build.gradle
-
             sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g' android/app/build.gradle
             sed -i 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion 35/g' android/app/build.gradle
-
             sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle
             sed -i 's/minSdkVersion [0-9][0-9]*/minSdkVersion 23/g' android/app/build.gradle
           fi
@@ -176,6 +170,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: private-teacher-app-v12-fixed-release-apk
+          name: private-teacher-app-v13-release-apk
           path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
