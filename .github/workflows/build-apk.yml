@@ -1,4 +1,4 @@
-name: Build Flutter APK V18
+name: Build Flutter APK V19
 
 on:
   workflow_dispatch:
@@ -71,13 +71,9 @@ jobs:
           set -e
 
           if [ ! -d "android" ]; then
-            echo "Android folder not found. Creating Android platform files..."
-
             cp pubspec.yaml /tmp/pubspec_backup.yaml
             cp -r lib /tmp/lib_backup
-
             flutter create . --platforms=android --project-name private_teacher_app
-
             rm -rf lib
             cp -r /tmp/lib_backup lib
             cp /tmp/pubspec_backup.yaml pubspec.yaml
@@ -136,7 +132,6 @@ jobs:
           set -e
 
           if [ -f "android/app/build.gradle.kts" ]; then
-            echo "Patching build.gradle.kts..."
             sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
             sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' android/app/build.gradle.kts
             sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g' android/app/build.gradle.kts
@@ -146,7 +141,6 @@ jobs:
           fi
 
           if [ -f "android/app/build.gradle" ]; then
-            echo "Patching build.gradle..."
             sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 36/g' android/app/build.gradle
             sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 36/g' android/app/build.gradle
             sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g' android/app/build.gradle
@@ -170,6 +164,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: private-teacher-app-v18-release-apk
+          name: private-teacher-app-v19-release-apk
           path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
